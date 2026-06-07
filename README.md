@@ -1,4 +1,27 @@
-# tidy-mac
+<p align="center">
+  <img src="src-tauri/icons/128x128.png" width="128" height="128" alt="tidy-mac logo" />
+</p>
+
+<h1 align="center">tidy-mac</h1>
+
+<p align="center">
+  <strong>清洁王</strong>，一个面向 macOS 的本地安全清理工具。
+</p>
+
+<p align="center">
+  <a href="https://github.com/yangbuyiya/tidy-mac/releases/latest">下载最新版</a>
+  ·
+  <a href="docs/release-notes.md">更新日志</a>
+  ·
+  <a href="https://github.com/yangbuyiya/tidy-mac/issues">反馈问题</a>
+</p>
+
+<p align="center">
+  <img alt="Release" src="https://img.shields.io/github/v/release/yangbuyiya/tidy-mac?label=release" />
+  <img alt="Platform" src="https://img.shields.io/badge/platform-macOS-172126" />
+  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24c8db" />
+  <img alt="React" src="https://img.shields.io/badge/React-18-61dafb" />
+</p>
 
 tidy-mac 是一个面向 macOS 的本地安全清理工具，中文名称为「清洁王」。它专注于扫描常见目录里的可清理文件，并在删除前保留人工确认流程。
 
