@@ -1,6 +1,6 @@
 [package]
 name = "tidy-mac"
-version = "0.1.0"
+version = "0.1.1"
 description = "清洁王"
 authors = ["yangbuyiya"]
 edition = "2021"

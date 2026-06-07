@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type DownloadEvent } from "@tauri-apps/plugin-updater";
+import { check, type CheckOptions, type DownloadEvent } from "@tauri-apps/plugin-updater";
 import {
   AlertTriangle,
   Archive,
@@ -86,6 +86,7 @@ type ScanTarget = {
 type AppSettings = {
   scanTargets: ScanTarget[];
   scanRules: ScanRules;
+  updateProxy?: string | null;
 };
 
 type ScanRules = {
@@ -263,6 +264,26 @@ function normalizeUpdateError(error: unknown): Pick<UpdateState, "message" | "de
   };
 }
 
+function isNetworkUpdateError(error: unknown): boolean {
+  const raw = String(error).toLowerCase();
+  return (
+    raw.includes("error sending request") ||
+    raw.includes("timed out") ||
+    raw.includes("connection") ||
+    raw.includes("dns") ||
+    raw.includes("network")
+  );
+}
+
+function normalizeProxyInput(value: string | null | undefined): string | null {
+  const proxy = value?.trim().replace(/\/+$/, "");
+  if (!proxy) return null;
+  if (proxy.startsWith("http://") || proxy.startsWith("https://") || proxy.startsWith("socks5://")) {
+    return proxy;
+  }
+  return `http://${proxy}`;
+}
+
 export function App() {
   const [summary, setSummary] = useState<ScanSummary | null>(null);
   const [folderGroups, setFolderGroups] = useState<FolderGroup[]>([]);
@@ -278,6 +299,7 @@ export function App() {
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateState>(INITIAL_UPDATE_STATE);
+  const [updateProxyDraft, setUpdateProxyDraft] = useState("");
   const tableRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [tableHeight, setTableHeight] = useState(520);
@@ -490,64 +512,38 @@ export function App() {
   }
 
   async function checkForUpdates() {
+    const configuredProxy = normalizeProxyInput(updateProxyDraft || appSettings?.updateProxy);
     setUpdateState({
       status: "checking",
-      message: "正在检查更新...",
+      message: configuredProxy ? `正在通过代理检查更新...` : "正在检查更新...",
       progress: 0,
+      detail: configuredProxy ?? undefined,
     });
     try {
-      const update = await check();
+      await runUpdater(configuredProxy);
+    } catch (error) {
+      if (!configuredProxy && isNetworkUpdateError(error)) {
+        const systemProxy = normalizeProxyInput(
+          await invoke<string | null>("get_system_update_proxy").catch(() => null),
+        );
 
-      if (!update) {
-        setUpdateState({
-          status: "latest",
-          message: "当前已是最新版本",
-          progress: 0,
-        });
-        setMessage("当前已是最新版本。");
-        return;
+        if (systemProxy) {
+          setUpdateState({
+            status: "checking",
+            message: "直连失败，正在通过系统代理重试...",
+            detail: systemProxy,
+            progress: 0,
+          });
+
+          try {
+            await runUpdater(systemProxy);
+            return;
+          } catch (proxyError) {
+            error = proxyError;
+          }
+        }
       }
 
-      let downloaded = 0;
-      let total: number | undefined;
-      setUpdateState({
-        status: "downloading",
-        message: `发现新版本 v${update.version}，正在下载...`,
-        progress: 0,
-        version: update.version,
-      });
-
-      await update.downloadAndInstall((event: DownloadEvent) => {
-        if (event.event === "Started") {
-          total = event.data.contentLength;
-          downloaded = 0;
-        }
-
-        if (event.event === "Progress") {
-          downloaded += event.data.chunkLength;
-          const progress = total ? Math.min(100, Math.round((downloaded / total) * 100)) : 0;
-          setUpdateState({
-            status: "downloading",
-            message: total
-              ? `正在下载 ${formatBytes(downloaded)} / ${formatBytes(total)}`
-              : `正在下载 ${formatBytes(downloaded)}`,
-            progress,
-            version: update.version,
-          });
-        }
-
-        if (event.event === "Finished") {
-          setUpdateState({
-            status: "installing",
-            message: "更新已安装，正在重启...",
-            progress: 100,
-            version: update.version,
-          });
-        }
-      });
-
-      await relaunch();
-    } catch (error) {
       const nextError = normalizeUpdateError(error);
       setUpdateState({
         status: "error",
@@ -559,10 +555,95 @@ export function App() {
     }
   }
 
+  async function runUpdater(proxy: string | null) {
+    const options: CheckOptions = {
+      timeout: 20_000,
+      ...(proxy ? { proxy } : {}),
+    };
+    const update = await check(options);
+
+    if (!update) {
+      setUpdateState({
+        status: "latest",
+        message: "当前已是最新版本",
+        detail: proxy ? `使用代理：${proxy}` : undefined,
+        progress: 0,
+      });
+      setMessage("当前已是最新版本。");
+      return;
+    }
+
+    let downloaded = 0;
+    let total: number | undefined;
+    setUpdateState({
+      status: "downloading",
+      message: `发现新版本 v${update.version}，正在下载...`,
+      detail: proxy ? `使用代理：${proxy}` : undefined,
+      progress: 0,
+      version: update.version,
+    });
+
+    await update.downloadAndInstall((event: DownloadEvent) => {
+      if (event.event === "Started") {
+        total = event.data.contentLength;
+        downloaded = 0;
+      }
+
+      if (event.event === "Progress") {
+        downloaded += event.data.chunkLength;
+        const progress = total ? Math.min(100, Math.round((downloaded / total) * 100)) : 0;
+        setUpdateState({
+          status: "downloading",
+          message: total
+            ? `正在下载 ${formatBytes(downloaded)} / ${formatBytes(total)}`
+            : `正在下载 ${formatBytes(downloaded)}`,
+          detail: proxy ? `使用代理：${proxy}` : undefined,
+          progress,
+          version: update.version,
+        });
+      }
+
+      if (event.event === "Finished") {
+        setUpdateState({
+          status: "installing",
+          message: "更新已安装，正在重启...",
+          detail: proxy ? `使用代理：${proxy}` : undefined,
+          progress: 100,
+          version: update.version,
+        });
+      }
+    });
+
+    await relaunch();
+  }
+
+  async function saveUpdateProxy() {
+    if (!appSettings) return;
+    const nextSettings = {
+      ...appSettings,
+      updateProxy: normalizeProxyInput(updateProxyDraft),
+    };
+    setAppSettings(nextSettings);
+    setUpdateProxyDraft(nextSettings.updateProxy ?? "");
+
+    try {
+      const saved = await invoke<AppSettings>("save_app_settings", {
+        settings: nextSettings,
+      });
+      setAppSettings(saved);
+      setUpdateProxyDraft(saved.updateProxy ?? "");
+      setMessage(saved.updateProxy ? `更新代理已保存：${saved.updateProxy}` : "已清空更新代理。");
+    } catch (error) {
+      setMessage(`保存更新代理失败：${String(error)}`);
+      void loadSettings();
+    }
+  }
+
   async function loadSettings() {
     try {
       const settings = await invoke<AppSettings>("get_app_settings");
       setAppSettings(settings);
+      setUpdateProxyDraft(settings.updateProxy ?? "");
     } catch (error) {
       setMessage(`读取设置失败：${String(error)}`);
     }
@@ -871,6 +952,24 @@ export function App() {
                           <strong>v{updateState.version}</strong>
                         </div>
                       ) : null}
+                    </div>
+
+                    <div className="update-proxy-row">
+                      <label>
+                        <span>网络代理</span>
+                        <input
+                          value={updateProxyDraft}
+                          placeholder="自动检测系统代理，如 http://127.0.0.1:7897"
+                          onChange={(event) => setUpdateProxyDraft(event.target.value)}
+                        />
+                      </label>
+                      <button
+                        className="settings-action secondary-action"
+                        disabled={!appSettings}
+                        onClick={saveUpdateProxy}
+                      >
+                        保存代理
+                      </button>
                     </div>
 
                     <button

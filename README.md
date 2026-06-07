@@ -97,6 +97,18 @@ docs/release-notes.md
 
 GitHub Release 和 `latest.json` 都会使用这份内容。
 
+## macOS 安全提示
+
+当前项目还没有接入 Apple Developer ID 公证。发布脚本会对 `.app` 做完整签名，避免 macOS 报「应用已损坏」，但首次从浏览器下载后，macOS 仍可能提示无法验证开发者。
+
+如果出现该提示，可以在 Finder 中右键点击「清洁王.app」并选择「打开」。如果系统仍然拦截，可以在确认来源可信后执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/清洁王.app
+```
+
+要做到普通用户双击无拦截，需要 Apple Developer Program、Developer ID Application 证书和 notarization。
+
 ## 发布流程
 
 推荐通过 PR 合并代码后再发布版本。

@@ -740,6 +740,40 @@ button {
   font-size: 13px;
 }
 
+.update-proxy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.update-proxy-row label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.update-proxy-row label span {
+  color: #66727b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.update-proxy-row input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid #ccd5ce;
+  border-radius: 8px;
+  outline: none;
+  color: #25313a;
+  background: #ffffff;
+}
+
+.update-proxy-row input:focus {
+  border-color: #25313a;
+}
+
 .update-check-button {
   justify-self: end;
 }

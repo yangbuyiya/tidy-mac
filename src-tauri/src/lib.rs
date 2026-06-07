@@ -151,6 +151,8 @@ struct AppSettings {
     scan_targets: Vec<ScanTarget>,
     #[serde(default = "default_scan_rules")]
     scan_rules: ScanRules,
+    #[serde(default)]
+    update_proxy: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -276,6 +278,11 @@ fn save_app_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<App
     let content = serde_json::to_string_pretty(&settings).map_err(|error| error.to_string())?;
     fs::write(path, content).map_err(|error| error.to_string())?;
     Ok(settings)
+}
+
+#[tauri::command]
+fn get_system_update_proxy() -> Option<String> {
+    detect_system_proxy()
 }
 
 fn scan_default_locations_inner(
@@ -480,6 +487,7 @@ pub fn run() {
             cancel_scan,
             get_app_settings,
             save_app_settings,
+            get_system_update_proxy,
             move_to_trash,
             reveal_in_finder,
             open_full_disk_access_settings,
@@ -585,6 +593,7 @@ fn load_settings(app: &tauri::AppHandle) -> Result<AppSettings, String> {
     let stored = serde_json::from_str::<AppSettings>(&content).unwrap_or_else(|_| AppSettings {
         scan_targets: Vec::new(),
         scan_rules: default_scan_rules(),
+        update_proxy: None,
     });
     sanitize_settings(app, stored)
 }
@@ -606,6 +615,7 @@ fn default_settings() -> Result<AppSettings, String> {
             target("home", "用户目录", home, false),
         ],
         scan_rules: default_scan_rules(),
+        update_proxy: detect_system_proxy(),
     })
 }
 
@@ -670,7 +680,69 @@ fn sanitize_settings(
     Ok(AppSettings {
         scan_targets,
         scan_rules: sanitize_scan_rules(settings.scan_rules),
+        update_proxy: normalize_update_proxy(settings.update_proxy).or_else(detect_system_proxy),
     })
+}
+
+fn normalize_update_proxy(proxy: Option<String>) -> Option<String> {
+    let value = proxy?.trim().trim_end_matches('/').to_string();
+    if value.is_empty() {
+        return None;
+    }
+
+    if value.starts_with("http://") || value.starts_with("https://") || value.starts_with("socks5://")
+    {
+        Some(value)
+    } else {
+        Some(format!("http://{value}"))
+    }
+}
+
+fn detect_system_proxy() -> Option<String> {
+    let output = Command::new("scutil").arg("--proxy").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let content = String::from_utf8_lossy(&output.stdout);
+    let mut https_enabled = false;
+    let mut https_host = None;
+    let mut https_port = None;
+    let mut http_enabled = false;
+    let mut http_host = None;
+    let mut http_port = None;
+
+    for line in content.lines() {
+        let mut parts = line.splitn(2, ':');
+        let Some(key) = parts.next() else {
+            continue;
+        };
+        let value = parts.next().map(str::trim).unwrap_or_default();
+
+        match key.trim() {
+            "HTTPSEnable" => https_enabled = value == "1",
+            "HTTPSProxy" => https_host = Some(value.to_string()),
+            "HTTPSPort" => https_port = Some(value.to_string()),
+            "HTTPEnable" => http_enabled = value == "1",
+            "HTTPProxy" => http_host = Some(value.to_string()),
+            "HTTPPort" => http_port = Some(value.to_string()),
+            _ => {}
+        }
+    }
+
+    if https_enabled {
+        if let (Some(host), Some(port)) = (https_host, https_port) {
+            return Some(format!("http://{host}:{port}"));
+        }
+    }
+
+    if http_enabled {
+        if let (Some(host), Some(port)) = (http_host, http_port) {
+            return Some(format!("http://{host}:{port}"));
+        }
+    }
+
+    None
 }
 
 fn selected_scan_roots_from(settings: &AppSettings) -> Result<Vec<PathBuf>, String> {

@@ -16,6 +16,7 @@
   - `TAURI_SIGNING_PRIVATE_KEY`
   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 当前可以不配置，因为当前 key 没有密码。
 - 私钥文件只允许保存在本机 `~/.tauri/tidy-mac.key` 或 GitHub Actions Secret，绝不能提交到仓库。
+- Tauri updater 签名不等于 Apple Developer ID 签名。没有 Developer ID 时，发布脚本至少要对 `.app` 做完整 ad-hoc 签名并重新生成 DMG/updater，避免 macOS 报「已损坏」。但未 notarize 的应用首次打开仍可能需要用户右键打开或移除 quarantine。
 
 ## Release Notes
 
@@ -64,6 +65,7 @@ npm run release:mac
 - `latest.json` 的 updater URL 使用 `tidy-mac_<version>_aarch64.app.tar.gz`。
 - 本地生成了 `tidy-mac_<version>_aarch64.dmg`。
 - 本地生成了 `tidy-mac_<version>_aarch64.app.tar.gz` 和 `.sig`。
+- `codesign -dv --verbose=4 src-tauri/target/release/bundle/macos/清洁王.app` 应显示 `Info.plist entries` 和 `Sealed Resources`，不能是 `Info.plist=not bound` / `Sealed Resources=none`。
 
 ## 发布流程
 
